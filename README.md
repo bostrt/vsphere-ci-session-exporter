@@ -3,6 +3,8 @@
 This application exports Prometheus metrics that bring together vSphere Sessions and related OpenShift CI jobs. This can
 be used for troubleshooting session leaks or session limit issues.
 
+Once application is running, metrics are exposed at `localhost:8090/metrics`. Of course, port is configurable.
+
 # TODO
 
 - Error handle loss of vSphere session 
