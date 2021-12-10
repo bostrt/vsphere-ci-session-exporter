@@ -5,6 +5,11 @@ be used for troubleshooting session leaks or session limit issues.
 
 Once application is running, metrics are exposed at `localhost:8090/metrics`. Of course, port is configurable.
 
+These metrics can be scraped by Prometheus to view. In this screenshot, we can see a specific CI job and User Agent
+using a notable number of sessions.
+
+![](./img/prometheus.png)
+
 # TODO
 
 - Error handle loss of vSphere session 
