@@ -3,6 +3,7 @@ package vsphere
 import (
 	"context"
 	"fmt"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/property"
@@ -53,7 +54,7 @@ func GetVsphereData(vmClient *govmomi.Client) (*VSphereUsers, error) {
 
 	m, err := getSessionManager(vmClient, context.TODO())
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "error getting session manager")
 	}
 
 	log.Infof("Found %d user sessions", len(m.SessionList))
