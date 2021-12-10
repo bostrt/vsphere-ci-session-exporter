@@ -57,7 +57,7 @@ func GetVsphereData(vmClient *govmomi.Client) (*VSphereUsers, error) {
 		return nil, errors.Wrap(err, "error getting session manager")
 	}
 
-	log.Infof("Found %d user sessions", len(m.SessionList))
+	log.Debugf("Found %d user sessions", len(m.SessionList))
 	for _,s := range m.SessionList {
 		v.addMapping(s.UserName, s.UserAgent)
 	}
@@ -81,6 +81,7 @@ func getSessionManager(vmClient *govmomi.Client, ctx context.Context) (*mo.Sessi
 }
 
 func GetUsernamePermutations(username string) []string {
+	log.Tracef("getting username permutations for %s", username)
 	matches := usernameRegex.FindStringSubmatch(username)
 	if matches == nil {
 		return nil

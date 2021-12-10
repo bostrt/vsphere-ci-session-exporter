@@ -59,7 +59,12 @@ func GetCIUserForBuildID(buildID string, target string, clientset *kubernetes.Cl
 		return "", err
 	}
 
-	return getCIUserFromSecret(clientset, target, ns)
+	user, err := getCIUserFromSecret(clientset, target, ns)
+	if err != nil {
+		return "", errors.Wrapf(err, "error finding secret for build-id %s", buildID)
+	}
+
+	return user, nil
 }
 
 func getCiNamespaceFromPod(clientset *kubernetes.Clientset, jobPod corev1.Pod) (string, error) {

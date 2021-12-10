@@ -36,6 +36,7 @@ type Exporter struct {
 	vcenter string
 	prowURI string
 	mutex sync.RWMutex
+	warningThreshold float64
 
 	vmClient *govmomi.Client
 	clientset *kubernetes.Clientset
@@ -64,6 +65,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	defer e.mutex.Unlock()
 
 	log.Debug("Metric collection starting...")
+	start := time.Now()
 	vcenterUp, prowUp := e.scrape(ch)
 
 	e.vcenterUp.Set(vcenterUp)
@@ -72,6 +74,11 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	ch <- e.vcenterUp
 	ch <- e.prowUp
 	ch <- e.totalScrapes
+
+	duration := time.Since(start)
+	if duration.Seconds() > e.warningThreshold {
+		log.Warnf("scrape operation took too long: %.2fs", duration.Seconds())
+	}
 
 	log.Debug("Metric collection complete.")
 }
@@ -105,14 +112,14 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) (vcenterUp float64, prowU
 		}
 		users := vsphere.GetUsernamePermutations(user)
 		if users == nil {
-			log.Errorf("issue getting user permutations")
+			log.Debugf("issue getting user permutations")
 			return
 		}
 
 		for _,u := range users {
 			userAgents := v.GetUserAgentsForUser(u)
 			if userAgents == nil {
-				log.Errorf("no sessions for user: %s", u)
+				log.Debugf("no sessions for user: %s", u)
 				continue
 			}
 			for userAgent, count := range userAgents {
@@ -132,7 +139,7 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) (vcenterUp float64, prowU
 	return 1, 1
 }
 
-func NewExporter(kubeconfig, vsphereHost, vsphereUser, vspherePasswd, vsphereUserAgent, prow string) (*Exporter, error) {
+func NewExporter(warning float64, kubeconfig, vsphereHost, vsphereUser, vspherePasswd, vsphereUserAgent, prow string) (*Exporter, error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), 60*time.Second)
 	defer cancel()
 
@@ -163,6 +170,7 @@ func NewExporter(kubeconfig, vsphereHost, vsphereUser, vspherePasswd, vsphereUse
 		vcenter:  vsphereHost,
 		vmClient: c,
 		clientset: clientset,
+		warningThreshold: warning,
 		totalScrapes: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name: "exporter_scrapes_total",

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	exporter "github.com/bostrt/vsphere-ci-session-metrics/pkg/exporter"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -74,9 +75,11 @@ var startCmd = &cobra.Command{
 		vspherePasswd := viper.GetString("vsphere-passwd")
 		vsphereUserAgent := viper.GetString("vsphere-user-agent")
 		prow := viper.GetString("prow")
+		listen := viper.GetInt("listen-port")
+		warning := viper.GetFloat64("warning-threshold")
 
 		// Setup the exporter
-		exporter, err := exporter.NewExporter(kcPath, vsphereHost, vsphereUser, vspherePasswd, vsphereUserAgent, prow)
+		exporter, err := exporter.NewExporter(warning, kcPath, vsphereHost, vsphereUser, vspherePasswd, vsphereUserAgent, prow)
 		defer exporter.Shutdown()
 		if err != nil {
 			log.Error(err)
@@ -86,8 +89,8 @@ var startCmd = &cobra.Command{
 		// Launch the server
 		prometheus.MustRegister(exporter)
 		http.Handle("/metrics", promhttp.Handler())
-		log.Info("Launching on :8090...")
-		err = http.ListenAndServe(":8090", nil)
+		log.Infof("Launching on :%d...", listen)
+		err = http.ListenAndServe(fmt.Sprintf(":%d", listen), nil)
 		if err != nil {
 			log.Error(err)
 		}
@@ -100,6 +103,9 @@ func init() {
 		viper.AutomaticEnv()
 		presetRequiredFlags(startCmd)
 	})
+
+	startCmd.Flags().Float64("warning-threshold", 30, "print a warning when scrapes take more than this many seconds")
+	viper.BindPFlag("warning-threshold", startCmd.Flags().Lookup("warning-threshold"))
 
 	startCmd.Flags().Int("listen-port", 8090, "exporter will listen on this port")
 	viper.BindPFlag("listen-port", startCmd.Flags().Lookup("listen-port"))
