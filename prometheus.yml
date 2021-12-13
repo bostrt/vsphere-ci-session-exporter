@@ -1,6 +1,6 @@
 global:
   scrape_interval: 1m
-  scrape_timeout: 20s # The application we monitor isn't very fast
+  scrape_timeout: 60s # The application we monitor isn't very fast
 # Testing Prometheus configuration
 scrape_configs:
   - job_name: "vsphere_ci_sessions"

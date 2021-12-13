@@ -63,6 +63,7 @@ func getVSphereProwJobs() (*[]prowapiv1.ProwJob, error) {
 		}
 	}
 
+	log.Debugf("Found %d relevant Prow jobs", len(vsphereProwJobs))
 	return &vsphereProwJobs, nil
 }
 

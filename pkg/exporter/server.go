@@ -100,39 +100,44 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) (vcenterUp float64, prowU
 		return
 	}
 
+	// Bring together data from Prow and vSphere.
+	// Loop over each vSphere Prow Job and find the CI User assoicated
+	// with it by querying the Build cluster.
+	//
 	jobs.ForEach(func(job prowapiv1.ProwJob, target string) {
 		buildId := job.GetLabels()["prow.k8s.io/build-id"]
 		jobName := job.GetLabels()["prow.k8s.io/job"]
 		pullLink := prow.GetPRLinkFromJob(job)
 
+		log.Debugf("build-id: %s job: %s PR: %s", buildId, jobName, pullLink)
 		user, err := build.GetCIUserForBuildID(buildId, target, e.clientset)
 		if err != nil {
-			log.Error(err)
+			log.Debug(err)
 			return
 		}
-		users := vsphere.GetUsernamePermutations(user)
-		if users == nil {
+
+		user = vsphere.StripDomain(user)
+		if user == "" {
 			log.Debugf("issue getting user permutations")
 			return
 		}
 
-		for _,u := range users {
-			userAgents := v.GetUserAgentsForUser(u)
-			if userAgents == nil {
-				log.Debugf("no sessions for user: %s", u)
-				continue
-			}
-			for userAgent, count := range userAgents {
-				ch <- prometheus.MustNewConstMetric(correlatedMetricDesc,
-					correlatedMetricType,
-					count,
-					u,
-					userAgent,
-					jobName,
-					buildId,
-					pullLink,
-					"ibmvcenter.vmc-ci.devcluster.openshift.com")
-			}
+		userAgents := v.GetUserAgentsForUser(user)
+		if userAgents == nil {
+			log.Debugf("no sessions for user: %s", user)
+			return
+		}
+
+		for userAgent, count := range userAgents {
+			ch <- prometheus.MustNewConstMetric(correlatedMetricDesc,
+				correlatedMetricType,
+				count,
+				user,
+				userAgent,
+				jobName,
+				buildId,
+				pullLink,
+				"ibmvcenter.vmc-ci.devcluster.openshift.com")
 		}
 	})
 

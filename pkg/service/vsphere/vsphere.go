@@ -2,7 +2,6 @@ package vsphere
 
 import (
 	"context"
-	"fmt"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmware/govmomi"
@@ -26,6 +25,7 @@ func (v *VSphereUsers) ForEach(f func(username string, userAgents map[string]flo
 }
 
 func (v *VSphereUsers) addMapping(username string, userAgent string) {
+	username = StripDomain(username)
 	userAgentMap, ok := v.Mappings[username]
 
 	if ! ok {
@@ -80,11 +80,13 @@ func getSessionManager(vmClient *govmomi.Client, ctx context.Context) (*mo.Sessi
 	return &m, nil
 }
 
-func GetUsernamePermutations(username string) []string {
-	log.Tracef("getting username permutations for %s", username)
+// StripDomain takes a vSphere username (e.g. user@vsphere.local or VSPHERE.LOCAL/admin)
+// and removes the domain portion, returning only the username.
+func StripDomain(username string) string {
+	log.Tracef("stripping domain from user %s", username)
 	matches := usernameRegex.FindStringSubmatch(username)
 	if matches == nil {
-		return nil
+		return ""
 	}
 
 	var name string
@@ -99,8 +101,5 @@ func GetUsernamePermutations(username string) []string {
 		name = matches[4]
 	}
 
-	return []string{
-		fmt.Sprintf("VSPHERE.LOCAL\\%s", name),
-		fmt.Sprintf("%s@vsphere.local", name),
-	}
+	return name
 }

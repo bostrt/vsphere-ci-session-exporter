@@ -61,7 +61,7 @@ func GetCIUserForBuildID(buildID string, target string, clientset *kubernetes.Cl
 
 	user, err := getCIUserFromSecret(clientset, target, ns)
 	if err != nil {
-		return "", errors.Wrapf(err, "error finding secret for build-id %s", buildID)
+		return "", errors.Wrapf(err, "unable to find secret for build-id %s", buildID)
 	}
 
 	return user, nil
