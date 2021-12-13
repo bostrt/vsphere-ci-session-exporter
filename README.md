@@ -73,11 +73,19 @@ INFO[0000] Launching on :8090...
 
 TODO
 
+## Caveats
 
-## Useful Queries
+If there are 2 or more CI jobs running at the same time with the _same_ CI user, the metric 
+will essentially be duplicated, one for each job. This means if you were to run a query like this:
 
-### Count by CI Username
 `sum by(username) (vsphere_ci_user_sessions_correlated)`
 
-### Count by CI Job
-`sum by(ci_job) (vsphere_ci_user_sessions_correlated)`
+it would return an exaggerated session count. It is advised to _not_ use the query above without 
+having a second `by(...)` field. For example:
+
+`sum by(username,ci_job) (vsphere_ci_user_sessions_correlated)` 
+
+would be fine. 
+
+It is important to keep in mind it's not currently possible to differeniate between 2 or more CI jobs
+in terms of their session usage in the event those CI jobs run at the same time. 
