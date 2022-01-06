@@ -1,4 +1,4 @@
-FROM golang:1.17-alpine
+FROM golang:1.17-alpine AS build
 
 WORKDIR /app
 
@@ -6,10 +6,16 @@ COPY go.mod ./
 COPY go.sum ./
 RUN go mod download
 
-COPY . ./
+COPY . .
 
-RUN go build -o /exporter
+RUN go build -o /vcse
 
-EXPOSE 8080
+FROM golang:1.17-alpine
 
-CMD [ "/exporter" ]
+WORKDIR /
+
+COPY --from=build /vcse /vcse
+
+EXPOSE 8090
+
+ENTRYPOINT ["/vcse"]

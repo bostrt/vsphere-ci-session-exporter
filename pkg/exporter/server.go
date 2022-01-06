@@ -12,7 +12,7 @@ import (
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/vim25/soap"
 	"k8s.io/client-go/kubernetes"
-	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
+	prowclient "k8s.io/test-infra/prow/client/clientset/versioned"
 	"net/url"
 	"sync"
 	"time"
@@ -38,8 +38,10 @@ type Exporter struct {
 	mutex sync.RWMutex
 	warningThreshold float64
 
-	vmClient *govmomi.Client
-	clientset *kubernetes.Clientset
+	vmClient       *govmomi.Client
+	buildClientset *kubernetes.Clientset
+	prowClientset *prowclient.Clientset
+
 
 	// Metrics of exporter itself
 	// TODO Include Prow and vCenter names in these metrics!
@@ -94,34 +96,54 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) (vcenterUp float64, prowU
 	}
 
 	// Get Prow Jobs on vSphere
-	jobs, err := prow.GetProwData()
+	var prowDataProvider prow.DataProvider
+	if e.prowClientset == nil {
+		// Pull data anonymously. This doesn't utilize server-side job filtering.
+		prowDataProvider = prow.AnonymousDataProvider{}
+	} else {
+		// Call to K8s API for Prow Jobs
+		prowDataProvider, err = prow.NewAuthenticatedDataProvier(e.prowClientset)
+		if err != nil {
+			log.Error(err)
+			return 1, 0
+		}
+	}
+
+	prowData, err := prowDataProvider.GetData()
 	if err != nil {
-		log.Error(errors.Wrap(err, "failed getting prow jobs"))
-		return
+		log.Error(errors.Wrap(err, "failed to get prow jobs"))
 	}
 
 	// Bring together data from Prow and vSphere.
 	// Loop over each vSphere Prow Job and find the CI User assoicated
 	// with it by querying the Build cluster.
-	//
-	jobs.ForEach(func(job prowapiv1.ProwJob, target string) {
+	for _,job := range prowData {
 		buildId := job.GetLabels()["prow.k8s.io/build-id"]
-		jobName := job.GetLabels()["prow.k8s.io/job"]
+		jobName := job.GetAnnotations()["prow.k8s.io/job"]
 		pullLink := prow.GetPRLinkFromJob(job)
+		target, err := prow.GetTargetFromProwJob(job)
+		if err != nil {
+			log.Debug(err)
+			continue
+		}
 
 		log.Debugf("build-id: %s job: %s PR: %s", buildId, jobName, pullLink)
-		user, err := build.GetCIUserForBuildID(buildId, target, e.clientset)
+
+		// Get CI username from metadata.json for the job
+		user, err := build.GetCIUserForBuildID(buildId, target, e.buildClientset)
 		if err != nil {
 			log.Debug(err)
 			return
 		}
 
+		// We're assuming @vsphere.local, strip it away
 		user = vsphere.StripDomain(user)
 		if user == "" {
-			log.Debugf("issue getting user permutations")
+			log.Tracef("cannot strip domain from user")
 			return
 		}
 
+		// Get map[string]float64 which contains user agent count summary
 		userAgents := v.GetUserAgentsForUser(user)
 		if userAgents == nil {
 			log.Debugf("no sessions for user: %s", user)
@@ -139,12 +161,12 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) (vcenterUp float64, prowU
 				pullLink,
 				"ibmvcenter.vmc-ci.devcluster.openshift.com")
 		}
-	})
+	}
 
 	return 1, 1
 }
 
-func NewExporter(warning float64, kubeconfig, vsphereHost, vsphereUser, vspherePasswd, vsphereUserAgent, prow string) (*Exporter, error) {
+func NewExporter(warning float64, buildKubeconfig, prowKubeconfig, vsphereHost, vsphereUser, vspherePasswd, vsphereUserAgent, prowURI string) (*Exporter, error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), 60*time.Second)
 	defer cancel()
 
@@ -154,7 +176,7 @@ func NewExporter(warning float64, kubeconfig, vsphereHost, vsphereUser, vsphereP
 	}
 
 	u.User = nil
-	c, err := govmomi.NewClient(ctx, u, false)
+	c, err := govmomi.NewClient(ctx, u, true)
 	if err != nil {
 		return nil, err
 	}
@@ -165,16 +187,25 @@ func NewExporter(warning float64, kubeconfig, vsphereHost, vsphereUser, vsphereP
 		return nil, err
 	}
 
-	clientset, err := build.BuildClient(kubeconfig)
+	buildClientset, err := build.BuildClient(buildKubeconfig)
 	if err != nil {
 		return nil, err
 	}
 
+	var prowClientset *prowclient.Clientset
+	if prowKubeconfig != "" {
+		prowClientset, err = prow.BuildClient(prowKubeconfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &Exporter{
-		prowURI:  prow,
-		vcenter:  vsphereHost,
-		vmClient: c,
-		clientset: clientset,
+		prowURI:          prowURI,
+		vcenter:          vsphereHost,
+		vmClient:         c,
+		buildClientset:   buildClientset,
+		prowClientset:    prowClientset,
 		warningThreshold: warning,
 		totalScrapes: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,

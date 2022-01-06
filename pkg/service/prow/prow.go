@@ -1,12 +1,16 @@
 package prow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/clientcmd"
 	prowapiv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
+	prowclient "k8s.io/test-infra/prow/client/clientset/versioned"
 	"net/http"
 	"regexp"
 )
@@ -19,20 +23,14 @@ var (
 	TargetRegex = regexp.MustCompile(`^--target=(.*)$`)
 )
 
-
-type VSphereProwJobs struct {
-	allJobs *[]prowapiv1.ProwJob
-	targets []string
+type DataProvider interface {
+	GetData() ([]prowapiv1.ProwJob, error)
 }
 
-func (v *VSphereProwJobs) ForEach(f func(job prowapiv1.ProwJob, target string)) {
-	for i,job := range *v.allJobs {
-		f(job, v.targets[i])
-	}
+type AnonymousDataProvider struct {
 }
 
-func getVSphereProwJobs() (*[]prowapiv1.ProwJob, error) {
-	// https://prow.ci.openshift.org/prowjobs.js?omit=annotations,decoration_config,pod_spec
+func (a AnonymousDataProvider) GetData() ([]prowapiv1.ProwJob, error) {
 	resp, err := http.Get("https://prow.ci.openshift.org/prowjobs.js?omit=decoration_config")
 	if err != nil {
 		return nil, errors.Wrap(err, "error retrieving list of prow jobs")
@@ -64,10 +62,57 @@ func getVSphereProwJobs() (*[]prowapiv1.ProwJob, error) {
 	}
 
 	log.Debugf("Found %d relevant Prow jobs", len(vsphereProwJobs))
-	return &vsphereProwJobs, nil
+	return vsphereProwJobs, nil
 }
 
-func getTargetFromProwJob(job prowapiv1.ProwJob) (string, error) {
+
+type AuthenticatedDataProvider struct {
+	clientset *prowclient.Clientset
+}
+
+func NewAuthenticatedDataProvier(client *prowclient.Clientset) (*AuthenticatedDataProvider, error) {
+	return &AuthenticatedDataProvider{
+		clientset: client,
+	}, nil
+}
+
+func (b *AuthenticatedDataProvider) GetData() ([]prowapiv1.ProwJob, error) {
+	// Get list of vSphere ProwJobs
+	log.Trace("Getting data from k8s")
+	jobList, err := b.clientset.ProwV1().ProwJobs("ci").List(context.TODO(), metav1.ListOptions{
+		LabelSelector: "ci-operator.openshift.io/cloud=vsphere",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var vsphereProwJobs []prowapiv1.ProwJob
+	for _,job := range jobList.Items {
+		if job.Status.State == prowapiv1.PendingState{
+			// Only keep Pending vSphere Jobs
+			vsphereProwJobs = append(vsphereProwJobs, job)
+		}
+	}
+
+	log.Debugf("Found %d relevant Prow jobs", len(vsphereProwJobs))
+	return vsphereProwJobs, nil
+}
+
+func BuildClient(kubeconfig string) (*prowclient.Clientset, error) {
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := prowclient.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset, nil
+}
+
+func GetTargetFromProwJob(job prowapiv1.ProwJob) (string, error) {
 	target := getTargetFromProwJobArgs(job.Spec.PodSpec.Containers[0].Args)
 	if target == "" {
 		return "", fmt.Errorf("unable to find --target arg in prow job")
@@ -85,30 +130,6 @@ func getTargetFromProwJobArgs(args []string) string {
 		return matches[1]
 	}
 	return ""
-}
-
-func GetProwData() (*VSphereProwJobs, error) {
-	allVSphereJobs, err := getVSphereProwJobs()
-	if err != nil {
-		return nil, err
-	}
-
-	targets := make([]string, len(*allVSphereJobs))
-	for i, j := range *allVSphereJobs {
-		t, err := getTargetFromProwJob(j)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-		targets[i] = t
-	}
-
-	jobs := &VSphereProwJobs{
-		allJobs: allVSphereJobs,
-		targets: targets,
-	}
-
-	return jobs, nil
 }
 
 func GetPRLinkFromJob(job prowapiv1.ProwJob) string {

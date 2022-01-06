@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	exporter "github.com/bostrt/vsphere-ci-session-metrics/pkg/exporter"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -31,15 +32,27 @@ var startCmd = &cobra.Command{
 		}
 		log.SetLevel(level)
 
-		// Validate kubeconfig file
-		kcPath := viper.GetString("kubeconfig")
-		log.Tracef("validating kubeconfig path: %s", kcPath)
+		// Validate build cluster kubeconfig file
+		kcPath := viper.GetString("build-kubeconfig")
+		log.Tracef("validating build cluster kubeconfig path: %s", kcPath)
 		_, err = os.Stat(kcPath)
 		if err != nil {
-			log.Error(err)
+			log.Error(errors.Wrap(err, "error finding build kubeconfig"))
 			return
 		}
-		log.Debugf("kubeconfig path: %s", kcPath)
+		log.Debugf("build cluster kubeconfig path: %s", kcPath)
+
+		// Validate prow kubeconfig file
+		pkcPath := viper.GetString("prow-kubeconfig")
+		log.Tracef("validating prow kubeconfig path: %s", pkcPath)
+		if pkcPath != "" {
+			_, err = os.Stat(pkcPath)
+			if err != nil {
+				log.Error(errors.Wrap(err, "error finding prow kubeconfig"))
+				return
+			}
+			log.Debugf("prow kubeconfig path: %s", pkcPath)
+		}
 
 		// Validate vSphere hostname
 		vsphereHost := viper.GetString("vsphere")
@@ -78,8 +91,8 @@ var startCmd = &cobra.Command{
 		listen := viper.GetInt("listen-port")
 		warning := viper.GetFloat64("warning-threshold")
 
-		// Setup the exporter
-		exporter, err := exporter.NewExporter(warning, kcPath, vsphereHost, vsphereUser, vspherePasswd, vsphereUserAgent, prow)
+		// Set up the exporter
+		exporter, err := exporter.NewExporter(warning, kcPath, pkcPath, vsphereHost, vsphereUser, vspherePasswd, vsphereUserAgent, prow)
 		defer exporter.Shutdown()
 		if err != nil {
 			log.Error(err)
@@ -113,10 +126,13 @@ func init() {
 	startCmd.Flags().String("log-level", "info", "set log level (e.g. debug, warn, error)")
 	viper.BindPFlag("log-level", startCmd.Flags().Lookup("log-level"))
 
-	startCmd.Flags().String("kubeconfig", "", "path to build cluster kubeconfig")
-	startCmd.MarkFlagFilename("kubeconfig")
-	startCmd.MarkFlagRequired("kubeconfig")
-	viper.BindPFlag("kubeconfig", startCmd.Flags().Lookup("kubeconfig"))
+	startCmd.Flags().String("build-kubeconfig", "", "path to build cluster kubeconfig")
+	startCmd.MarkFlagFilename("build-kubeconfig")
+	startCmd.MarkFlagRequired("build-kubeconfig")
+	viper.BindPFlag("build-kubeconfig", startCmd.Flags().Lookup("build-kubeconfig"))
+
+	startCmd.Flags().String("prow-kubeconfig", "", "path to prow kubeconfig")
+	viper.BindPFlag("prow-kubeconfig", startCmd.Flags().Lookup("prow-kubeconfig"))
 
 	startCmd.Flags().String("vsphere", "", "vSphere hostname (do not include scheme)")
 	startCmd.MarkFlagRequired("vsphere")
