@@ -133,21 +133,21 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) (vcenterUp float64, prowU
 		user, err := build.GetCIUserForBuildID(buildId, target, e.buildClientset)
 		if err != nil {
 			log.Debug(err)
-			return
+			continue
 		}
 
 		// We're assuming @vsphere.local, strip it away
 		user = vsphere.StripDomain(user)
 		if user == "" {
 			log.Tracef("cannot strip domain from user")
-			return
+			continue
 		}
 
 		// Get map[string]float64 which contains user agent count summary
 		userAgents := v.GetUserAgentsForUser(user)
 		if userAgents == nil {
 			log.Debugf("no sessions for user: %s", user)
-			return
+			continue
 		}
 
 		for userAgent, count := range userAgents {
