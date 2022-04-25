@@ -166,5 +166,5 @@ jobs:
 
     - name: Create application
       run: |
-        oc new-app --file=./deployment.yaml --param=IMAGE_PATH=${{ steps.push-image.outputs.registry-path }}
+        oc apply -f ./deployment.yaml
 
