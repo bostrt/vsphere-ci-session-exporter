@@ -4,7 +4,6 @@ metadata:
   labels:
     app: vcse
   name: vsphere-ci-session-metrics
-  namespace: ${NAMESPACE} # ${{ env.OPENSHIFT_NAMESPACE }}
 spec:
   progressDeadlineSeconds: 600
   replicas: 1
