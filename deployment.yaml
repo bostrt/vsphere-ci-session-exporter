@@ -72,4 +72,6 @@ objects:
           secret:
             defaultMode: 420
             secretName: vsphere-creds
-
+parameters:
+- description: Image path
+  name: IMAGE_PATH
