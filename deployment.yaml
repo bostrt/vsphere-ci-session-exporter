@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: vcse
+  name: vsphere-ci-session-metrics
+  namespace: ${NAMESPACE} # ${{ env.OPENSHIFT_NAMESPACE }}
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: vcse
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: vcse
+    spec:
+      containers:
+      - args:
+        - start
+        - --build-kubeconfig
+        - /etc/build-kubeconfig
+        - --prow-kubeconfig
+        - /etc/prow-kubeconfig
+        envFrom:
+        - secretRef:
+            name: vsphere
+            optional: false
+        image: ${IMAGE_PATH} # ${{ steps.push-image.outputs.registry-path }}
+        imagePullPolicy: Always
+        name: exporter
+        ports:
+        - containerPort: 8090
+          name: web
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/build-kubeconfig
+          name: buildkc
+          subPath: kubeconfig
+        - mountPath: /etc/prow-kubeconfig
+          name: prowkc
+          subPath: kubeconfig
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: prowkc
+        secret:
+          defaultMode: 420
+          secretName: prow-kubeconfig
+      - name: buildkc
+        secret:
+          defaultMode: 420
+          secretName: build-kubeconfig
+      - name: vsphere-creds
+        secret:
+          defaultMode: 420
+          secretName: vsphere-creds
+
