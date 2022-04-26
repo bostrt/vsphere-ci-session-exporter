@@ -59,6 +59,9 @@ on:
     branches:
       - main
       - cicd
+    paths:
+      - '!prometheus-vcse.yaml'
+      - '!prometheus.yaml'
 
 jobs:
   openshift-ci-cd:
