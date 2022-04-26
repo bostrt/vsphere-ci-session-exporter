@@ -79,7 +79,7 @@ jobs:
 
     - name: Apply config
       run: |
-        oc apply prometheus-vcse.yaml
+        oc apply -f prometheus-vcse.yaml
 
     - name: Delete old pod
       run: |
