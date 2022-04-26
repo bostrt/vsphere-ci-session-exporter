@@ -1,0 +1,27 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: vcse
+spec:
+  alerting:
+    alertmanagers:
+    - name: alertmanager-main
+      namespace: splat
+      port: web
+  podMonitorSelector: {}
+  probeSelector: {}
+  replicas: 1
+  ruleSelector: {}
+  scrapeInterval: 1m
+  scrapeTimeout: 55s
+  serviceAccountName: prometheus-k8s
+  serviceMonitorSelector:
+    matchLabels:
+      app: vcse
+  storage:
+    volumeClaimTemplate:
+      spec:
+        resources:
+          requests:
+            storage: 20Gi
+
