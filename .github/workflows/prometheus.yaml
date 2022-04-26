@@ -80,12 +80,12 @@ jobs:
 
     - name: Apply config
       run: |
-        oc apply -f prometheus-vcse.yaml
+        oc apply -f prometheus-vcse.yaml -n ${{ env.OPENSHIFT_NAMESPACE }}
 
     - name: Delete old pod
       run: |
-        oc delete pod -l prometheus=vcse
+        oc delete pod -l prometheus=vcse -n ${{ env.OPENSHIFT_NAMESPACE }}
 
     - name: Wait for pod
       run: |
-        oc wait --for=condition=Ready pod/prometheus-vcse-0
+        oc wait --for=condition=Ready pod/prometheus-vcse-0 -n ${{ env.OPENSHIFT_NAMESPACE }}
