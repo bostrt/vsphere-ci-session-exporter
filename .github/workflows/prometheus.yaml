@@ -18,6 +18,7 @@ on:
       - cicd
     paths:
       - 'prometheus-vcse.yaml'
+      - '.github/workflows/prometheus.yaml'
 
 jobs:
   openshift-ci-cd:
