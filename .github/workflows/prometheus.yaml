@@ -83,8 +83,7 @@ jobs:
         oc apply -f prometheus-vcse.yaml -n ${{ env.OPENSHIFT_NAMESPACE }}
 
     - name: Delete old pod
-      run: |
-        oc delete pod -l prometheus=vcse -n ${{ env.OPENSHIFT_NAMESPACE }}
+      run: oc delete pod -l prometheus=vcse -n ${{ env.OPENSHIFT_NAMESPACE }}
 
     - name: Wait for pod
       run: |
