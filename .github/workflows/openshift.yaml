@@ -126,6 +126,13 @@ jobs:
       run: |
         echo "IMAGE_TAGS=latest ${GITHUB_SHA::12}" | tee -a $GITHUB_ENV
 
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.17
+    - name: Test
+      run: go test -v ./...
+
     # https://github.com/redhat-actions/buildah-build#readme
     - name: Build from Dockerfile
       id: build-image
