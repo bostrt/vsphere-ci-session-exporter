@@ -3,9 +3,10 @@ package exporter
 import (
 	"context"
 	"fmt"
-	"github.com/bostrt/vsphere-ci-session-metrics/pkg/service/build"
-	"github.com/bostrt/vsphere-ci-session-metrics/pkg/service/prow"
-	"github.com/bostrt/vsphere-ci-session-metrics/pkg/service/vsphere"
+	"net/url"
+	"sync"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -13,9 +14,10 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 	"k8s.io/client-go/kubernetes"
 	prowclient "k8s.io/test-infra/prow/client/clientset/versioned"
-	"net/url"
-	"sync"
-	"time"
+
+	"github.com/bostrt/vsphere-ci-session-metrics/pkg/service/build"
+	"github.com/bostrt/vsphere-ci-session-metrics/pkg/service/prow"
+	"github.com/bostrt/vsphere-ci-session-metrics/pkg/service/vsphere"
 )
 
 var (
@@ -30,29 +32,28 @@ var (
 	correlatedMetricType = prometheus.GaugeValue
 )
 
-
-
 type Exporter struct {
-	vcenter string
-	prowURI string
-	mutex sync.RWMutex
+	vcenter          string
+	prowURI          string
+	mutex            sync.RWMutex
 	warningThreshold float64
 
-	vmClient       *govmomi.Client
-	buildClientset *kubernetes.Clientset
-	prowClientset *prowclient.Clientset
-
+	vsphereHost      string
+	vsphereUser      string
+	vspherePasswd    string
+	vsphereUserAgent string
+	buildClientset   *kubernetes.Clientset
+	prowClientset    *prowclient.Clientset
 
 	// Metrics of exporter itself
 	// TODO Include Prow and vCenter names in these metrics!
 	totalScrapes prometheus.Counter
-	vcenterUp prometheus.Gauge
-	prowUp prometheus.Gauge
+	vcenterUp    prometheus.Gauge
+	prowUp       prometheus.Gauge
 }
 
 func (e *Exporter) Shutdown() {
 	log.Info("shutting down exporter...")
-	e.vmClient.Logout(context.TODO())
 }
 
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
@@ -85,11 +86,45 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	log.Debug("Metric collection complete.")
 }
 
-func (e *Exporter) scrape(ch chan<- prometheus.Metric) (vcenterUp float64, prowUp float64) {
-	e.totalScrapes.Inc()
+func (e *Exporter) vSphereLogin() (*govmomi.Client, error) {
+	ctx, cancel := context.WithTimeout(context.TODO(), 60*time.Second)
+	defer cancel()
+
+	u, err := soap.ParseURL(fmt.Sprintf("https://%s", e.vsphereHost))
+	if err != nil {
+		return nil, err
+	}
 
 	// Get vSphere User Sessions
-	v, err := vsphere.GetVsphereData(e.vmClient)
+	u.User = nil
+	c, err := govmomi.NewClient(ctx, u, true)
+	if err != nil {
+		return nil, err
+	}
+
+	c.UserAgent = e.vsphereUserAgent
+	err = c.Login(ctx, url.UserPassword(e.vsphereUser, e.vspherePasswd))
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}
+
+func (e *Exporter) scrape(ch chan<- prometheus.Metric) (vcenterUp float64, prowUp float64) {
+	ctx, cancel := context.WithTimeout(context.TODO(), 60*time.Second)
+	defer cancel()
+
+	e.totalScrapes.Inc()
+
+	c, err := e.vSphereLogin()
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	defer c.Logout(ctx)
+
+	v, err := vsphere.GetVsphereData(c)
 	if err != nil {
 		log.Error(errors.Wrap(err, "failed scraping vsphere"))
 		return
@@ -117,7 +152,7 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) (vcenterUp float64, prowU
 	// Bring together data from Prow and vSphere.
 	// Loop over each vSphere Prow Job and find the CI User assoicated
 	// with it by querying the Build cluster.
-	for _,job := range prowData {
+	for _, job := range prowData {
 		buildId := job.GetLabels()["prow.k8s.io/build-id"]
 		jobName := job.GetAnnotations()["prow.k8s.io/job"]
 		pullLink := prow.GetPRLinkFromJob(job)
@@ -181,11 +216,13 @@ func NewExporter(warning float64, buildKubeconfig, prowKubeconfig, vsphereHost, 
 		return nil, err
 	}
 
+	// Test login with vSphere
 	c.UserAgent = vsphereUserAgent
 	err = c.Login(ctx, url.UserPassword(vsphereUser, vspherePasswd))
 	if err != nil {
 		return nil, err
 	}
+	defer c.Logout(ctx)
 
 	buildClientset, err := build.BuildClient(buildKubeconfig)
 	if err != nil {
@@ -203,24 +240,27 @@ func NewExporter(warning float64, buildKubeconfig, prowKubeconfig, vsphereHost, 
 	return &Exporter{
 		prowURI:          prowURI,
 		vcenter:          vsphereHost,
-		vmClient:         c,
+		vsphereHost:      vsphereHost,
+		vsphereUser:      vsphereUser,
+		vspherePasswd:    vspherePasswd,
+		vsphereUserAgent: vsphereUserAgent,
 		buildClientset:   buildClientset,
 		prowClientset:    prowClientset,
 		warningThreshold: warning,
 		totalScrapes: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
-			Name: "exporter_scrapes_total",
-			Help: "Current total scrapes",
+			Name:      "exporter_scrapes_total",
+			Help:      "Current total scrapes",
 		}),
 		vcenterUp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name: "vcenter_up",
-			Help: "Was vCenter up last scrape.",
+			Name:      "vcenter_up",
+			Help:      "Was vCenter up last scrape.",
 		}),
 		prowUp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
-			Name: "prow_up",
-			Help: "Was Prow up last scrape.",
+			Name:      "prow_up",
+			Help:      "Was Prow up last scrape.",
 		}),
 	}, nil
 }
